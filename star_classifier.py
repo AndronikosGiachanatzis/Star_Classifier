@@ -7,11 +7,15 @@ import tensorflow as tf
 from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from tensorflow import keras
 
 
 # define constants
 VARIANCE_THRESHOLD = 0  # the variance threshold below which variables will be deleted
+N_CLASSES = 6   # the number of classes
+LEARNING_RATE = 0.003   # the learning rate of the optimizer
+N_EPOCHS = 300  # number of training epochs
 
 
 def getCMDArgs():
@@ -89,9 +93,38 @@ def scaleX(x_train, x_test=None):
     return x_train_scaled
 
 
+def standardizeX(x_train, x_test=None):
 
-def define_model():
-    pass
+    standardizer = StandardScaler().fit(x_train)
+
+    x_cols = x_train.columns
+
+    x_train_std = pd.DataFrame(standardizer.transform(x_train), columns=x_cols)
+
+    if x_test is not None:
+        x_test_std = pd.DataFrame(standardizer.transform(x_test), columns=x_cols)
+        return x_train_std, x_test_std
+
+    return x_train_std
+
+
+def defineModel(n_features):
+    model = keras.models.Sequential()
+    # model.add(keras.Input(shape=(n_features, ), name="Input"))
+    model.add(keras.layers.InputLayer(input_shape=[n_features]))
+    model.add(keras.layers.Dense(10, activation="relu", name="Hidden_1"))
+    model.add(keras.layers.Dense(10, activation="relu", name="Hidden_2"))
+    model.add(keras.layers.Dense(N_CLASSES, activation="softmax", name="Output"))
+
+    return model
+
+
+def plotHistory(history):
+    plt.close("all")
+    pd.DataFrame(history.history).plot(figsize=(8, 5))
+    plt.grid(True)
+    plt.gca().set_ylim(0, 1)
+    plt.show()
 
 
 def main():
@@ -164,6 +197,34 @@ def main():
 
     # scale the features in the range [0,1]
     x_train_scaled, x_test_scaled = scaleX(x_train, x_test)
+    x_train_scaled, x_test_scaled = standardizeX(x_train_scaled, x_test_scaled)
+
+    # ----- TRAINING -----
+
+    # define model
+    model = defineModel(len(x_train_scaled.columns))
+
+    # compile model
+    model.compile(loss="sparse_categorical_crossentropy",
+                  optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+                  metrics=["accuracy"]
+                  )
+
+
+    # train the model
+
+    # use early stopping
+    early_stopping_cb = keras.callbacks.EarlyStopping(patience=20, restore_best_weights=True)
+
+    history = model.fit(x_train_scaled, y_train, epochs=N_EPOCHS, validation_data=(x_test_scaled, y_test),
+                        callbacks=[early_stopping_cb], batch_size=12)
+
+    # plot the training statistics
+    plotHistory(history)
+
+    print(model.evaluate(x_train_scaled, y_train))
+    print(model.evaluate(x_test_scaled, y_test))
+
 
 
 
