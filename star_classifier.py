@@ -14,17 +14,21 @@ from tensorflow import keras
 # define constants
 VARIANCE_THRESHOLD = 0  # the variance threshold below which variables will be deleted
 N_CLASSES = 6   # the number of classes
-LEARNING_RATE = 0.003   # the learning rate of the optimizer
-N_EPOCHS = 300  # number of training epochs
-
+LEARNING_RATE = 0.001   # the learning rate of the optimizer
+N_EPOCHS = 1000  # number of training epochs
+SHUFFLE_BUFFER = 6
+BATCH_SIZE = 20
 
 def getCMDArgs():
+    '''
+    Gets the arguments passed from the cmd/terminal invocation
+    :return args (Namespace): The object holding the arguments passed
+    '''
     parser = argparse.ArgumentParser(description="Trains a neural network to classify different star types",
-                                     usage="python star_classifier [OPTION]...")
-    parser.add_argument("-v", help="Verbosity")
-
+                                     usage="python star_classifier [OPTION]... [FILENAME]")
+    parser.add_argument("-m", help="Load model and evaluate pretrained model")
     args = parser.parse_args()
-    return args.file
+    return args
 
 
 def loadDataset(name):
@@ -57,18 +61,6 @@ def heatMap(dataset):
     # plt.show()
 
 
-def removeLowVariances(x):
-    '''
-    Removes all variables from the dataset that have variance below a given threshold
-    :param x (pandas.DataFrame): The variables whose variance will be analyzed
-    :return (pandas.DataFrame): The variables whose variance surpasses the threshold
-    '''
-    selector = VarianceThreshold(threshold=VARIANCE_THRESHOLD)
-    selector.fit(x)
-    new_x = x[x.columns[selector.get_support(indices=True)]]
-    return new_x
-
-
 def scaleX(x_train, x_test=None):
     '''
     Scales the features to fit in the range [0,1]. If passed with a test set then, the test set is scaled using the
@@ -94,14 +86,22 @@ def scaleX(x_train, x_test=None):
 
 
 def standardizeX(x_train, x_test=None):
-
+    '''
+    Standardizes the features. If passed with a test set then, the test set is standardized using the
+    training set.
+    :param x_train (pandas.DataFrame): The training x (features)
+    :param x_test (pandas.DataFrame): (optional) The test x (features)
+    :return (pandas.DataFrame(s)): The standardized dataset(s)
+    '''
     standardizer = StandardScaler().fit(x_train)
-
+    # keep the column names
     x_cols = x_train.columns
 
+    # standardize the train set
     x_train_std = pd.DataFrame(standardizer.transform(x_train), columns=x_cols)
 
     if x_test is not None:
+        # standardize the test set
         x_test_std = pd.DataFrame(standardizer.transform(x_test), columns=x_cols)
         return x_train_std, x_test_std
 
@@ -109,25 +109,46 @@ def standardizeX(x_train, x_test=None):
 
 
 def defineModel(n_features):
+    '''
+    Defines the architecture of the model
+    :param n_features (int): The number of features/the size of the input layer
+    :return model: The keras Sequential model
+    '''
     model = keras.models.Sequential()
-    # model.add(keras.Input(shape=(n_features, ), name="Input"))
     model.add(keras.layers.InputLayer(input_shape=[n_features]))
-    model.add(keras.layers.Dense(10, activation="relu", name="Hidden_1"))
-    model.add(keras.layers.Dense(10, activation="relu", name="Hidden_2"))
+    model.add(keras.layers.Dense(25, activation="relu", name="Hidden_1"))
+    model.add(keras.layers.Dense(20, activation="relu", name="Hidden_2"))
     model.add(keras.layers.Dense(N_CLASSES, activation="softmax", name="Output"))
 
     return model
 
 
 def plotHistory(history):
+    '''
+    Plots the training curves
+    :param history: The object holding the metrics
+    '''
+    # close all previous figures
     plt.close("all")
+
+    # plot the training curves
     pd.DataFrame(history.history).plot(figsize=(8, 5))
     plt.grid(True)
     plt.gca().set_ylim(0, 1)
     plt.show()
 
 
+# def preprocess(dataset):
+#     '''
+#     Repeat, shuffle and batch the dataset
+#     :param dataset (pandas.DataFrame): The dataset to be processed
+#     :return: The processed dataset
+#     '''
+#     return dataset.shuffle(100).batch(25).prefetch(1)
+
+
 def main():
+
     # load dataset
     dataset = loadDataset("dataset/star_dataset.csv")
     print(dataset)
@@ -199,34 +220,52 @@ def main():
     x_train_scaled, x_test_scaled = scaleX(x_train, x_test)
     x_train_scaled, x_test_scaled = standardizeX(x_train_scaled, x_test_scaled)
 
-    # ----- TRAINING -----
-
-    # define model
-    model = defineModel(len(x_train_scaled.columns))
-
-    # compile model
-    model.compile(loss="sparse_categorical_crossentropy",
-                  optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
-                  metrics=["accuracy"]
-                  )
+    # convert the train set to tf dataset
+    # tmp = tf.data.Dataset.from_tensor_slices((x_train_scaled, y_train))
+    # train = preprocess(tmp)
 
 
-    # train the model
+    # ----- TRAINING & EVALUATION -----
+    # parse the cmd arguments
+    args = getCMDArgs()
 
-    # use early stopping
-    early_stopping_cb = keras.callbacks.EarlyStopping(patience=20, restore_best_weights=True)
+    if args.m is None:  # train a new model only
+        # define model
+        model = defineModel(len(x_train_scaled.columns))
 
-    history = model.fit(x_train_scaled, y_train, epochs=N_EPOCHS, validation_data=(x_test_scaled, y_test),
-                        callbacks=[early_stopping_cb], batch_size=12)
+        # compile model
+        model.compile(loss="sparse_categorical_crossentropy",
+                      optimizer=keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+                      metrics=["accuracy"]
+                      )
 
-    # plot the training statistics
-    plotHistory(history)
+        # train the model
+        # use early stopping
+        early_stopping_cb = keras.callbacks.EarlyStopping(patience=30, restore_best_weights=True)
 
+        history = model.fit(x_train_scaled, y_train, epochs=N_EPOCHS, validation_data=(x_test_scaled, y_test),
+                            callbacks=[early_stopping_cb], batch_size=BATCH_SIZE)
+
+        # save the model
+        model.save("star_classifier.h5")
+
+        # plot the training statistics
+        plotHistory(history)
+
+    else:   # load and evaluate the model only
+        try:    # load the pretrained model
+            model = keras.models.load_model(f"pre-trained_model/{args.l}")
+        except OSError as err:
+            print("File containing the model doesn't exist, check the filename!")
+            return
+        # print the summary of the model
+        print()
+        print(model.summary())
+        print()
+
+    # evaluate the model
     print(model.evaluate(x_train_scaled, y_train))
     print(model.evaluate(x_test_scaled, y_test))
-
-
-
 
 
 if __name__ == "__main__":
