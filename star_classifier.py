@@ -17,7 +17,8 @@ N_CLASSES = 6   # the number of classes
 LEARNING_RATE = 0.001   # the learning rate of the optimizer
 N_EPOCHS = 1000  # number of training epochs
 SHUFFLE_BUFFER = 6
-BATCH_SIZE = 20
+BATCH_SIZE = 32
+
 
 def getCMDArgs():
     '''
@@ -138,13 +139,13 @@ def plotHistory(history):
     plt.show()
 
 
-# def preprocess(dataset):
-#     '''
-#     Repeat, shuffle and batch the dataset
-#     :param dataset (pandas.DataFrame): The dataset to be processed
-#     :return: The processed dataset
-#     '''
-#     return dataset.shuffle(100).batch(25).prefetch(1)
+def preprocess(dataset):
+    '''
+    Repeat, shuffle and batch the dataset
+    :param dataset (pandas.DataFrame): The dataset to be processed
+    :return: The processed dataset
+    '''
+    return dataset.repeat(10).shuffle(50).batch(BATCH_SIZE).prefetch(1)
 
 
 def main():
@@ -184,7 +185,6 @@ def main():
     # convert int colum to float
     dataset["Temperature_(K)"] = dataset["Temperature_(K)"].astype(float)
 
-
     # One-Hot Encode the categorical features
     color_dummy = pd.get_dummies(dataset["Star_color"], dtype=float)
     spectral_dummy = pd.get_dummies(dataset["Spectral_Class"], dtype=float)
@@ -216,7 +216,7 @@ def main():
     x_test = x_test.reset_index(drop=True)
     y_test = y_test.reset_index(drop=True)
 
-    # scale the features in the range [0,1]
+    # scale and standardize the features in the range [0,1]
     x_train_scaled, x_test_scaled = scaleX(x_train, x_test)
     x_train_scaled, x_test_scaled = standardizeX(x_train_scaled, x_test_scaled)
 
@@ -247,19 +247,20 @@ def main():
                             callbacks=[early_stopping_cb], batch_size=BATCH_SIZE)
 
         # save the model
-        model.save("star_classifier.h5")
+        model.save("star_classifier-new.h5")
 
         # plot the training statistics
         plotHistory(history)
 
     else:   # load and evaluate the model only
         try:    # load the pretrained model
-            model = keras.models.load_model(f"pre-trained_model/{args.l}")
+            model = keras.models.load_model(f"pre-trained_model/{args.m}")
         except OSError as err:
             print("File containing the model doesn't exist, check the filename!")
             return
         # print the summary of the model
         print()
+        print(f"LEARNING RATE: {model.optimizer.learning_rate}")
         print(model.summary())
         print()
 
