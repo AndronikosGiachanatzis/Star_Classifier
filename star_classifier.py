@@ -254,7 +254,7 @@ def main():
 
     else:   # load and evaluate the model only
         try:    # load the pretrained model
-            model = keras.models.load_model(f"pre-trained_model/{args.m}")
+            model = keras.models.load_model(f"{args.m}")
         except OSError as err:
             print("File containing the model doesn't exist, check the filename!")
             return
